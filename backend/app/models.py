@@ -2,7 +2,7 @@ import datetime
 from typing import List, Optional
 from sqlalchemy import (
     Boolean, Column, Date, DateTime, ForeignKey, Integer,
-    String, UniqueConstraint, Table, CheckConstraint,
+    String, Table, CheckConstraint,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -13,33 +13,15 @@ class Base(DeclarativeBase):
 
 # --- Association tables (pure join, no extra columns) ---
 
-participa_table = Table(
-    "participa", Base.metadata,
-    Column("cpf_pessoa", String(11), ForeignKey("pessoa.cpf", ondelete="CASCADE"), primary_key=True),
-    Column("id_ministerio", Integer, ForeignKey("ministerio.id_ministerio", ondelete="CASCADE"), primary_key=True),
-)
-
 possui_table = Table(
     "possui", Base.metadata,
-    Column("cpf_pessoa", String(11), ForeignKey("pessoa.cpf", ondelete="CASCADE"), primary_key=True),
+    Column("id_pessoa", Integer, ForeignKey("pessoa.id_pessoa", ondelete="CASCADE"), primary_key=True),
     Column("id_habilidade", Integer, ForeignKey("habilidade.id_habilidade", ondelete="CASCADE"), primary_key=True),
 )
 
-habilita_table = Table(
-    "habilita", Base.metadata,
+hospedar_table = Table(
+    "hospedar", Base.metadata,
     Column("id_local", Integer, ForeignKey("local.id_local", ondelete="CASCADE"), primary_key=True),
-    Column("id_tipo_evento", Integer, ForeignKey("tipo_evento.id_tipo_evento", ondelete="CASCADE"), primary_key=True),
-)
-
-lidera_table = Table(
-    "lidera", Base.metadata,
-    Column("cpf_pessoa", String(11), ForeignKey("pessoa.cpf", ondelete="CASCADE"), primary_key=True),
-    Column("id_ministerio", Integer, ForeignKey("ministerio.id_ministerio", ondelete="CASCADE"), primary_key=True),
-)
-
-gerencia_table = Table(
-    "gerencia", Base.metadata,
-    Column("id_ministerio", Integer, ForeignKey("ministerio.id_ministerio", ondelete="CASCADE"), primary_key=True),
     Column("id_tipo_evento", Integer, ForeignKey("tipo_evento.id_tipo_evento", ondelete="CASCADE"), primary_key=True),
 )
 
@@ -54,7 +36,7 @@ class Local(Base):
     capacidade_maxima: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
 
     tipos_evento: Mapped[List["TipoEvento"]] = relationship(
-        secondary=habilita_table, back_populates="locais"
+        secondary=hospedar_table, back_populates="locais"
     )
     eventos: Mapped[List["Evento"]] = relationship(back_populates="local")
 
@@ -69,21 +51,6 @@ class Habilidade(Base):
     alocacoes: Mapped[List["Alocacao"]] = relationship(back_populates="habilidade")
 
 
-class Ministerio(Base):
-    __tablename__ = "ministerio"
-
-    id_ministerio: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    nome: Mapped[str] = mapped_column(String(100), nullable=False)
-    criado_em: Mapped[datetime.date] = mapped_column(Date, default=datetime.date.today)
-    login: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
-    senha_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-
-    membros: Mapped[List["Pessoa"]] = relationship(secondary=participa_table, back_populates="ministerios")
-    lideres: Mapped[List["Pessoa"]] = relationship(secondary=lidera_table, back_populates="ministerios_liderados")
-    tipos_evento: Mapped[List["TipoEvento"]] = relationship(secondary=gerencia_table, back_populates="ministerios")
-    alocacoes: Mapped[List["Alocacao"]] = relationship(back_populates="ministerio")
-
-
 class TipoEvento(Base):
     __tablename__ = "tipo_evento"
 
@@ -93,8 +60,7 @@ class TipoEvento(Base):
     necessidades: Mapped[List["Necessita"]] = relationship(
         back_populates="tipo_evento", cascade="all, delete-orphan"
     )
-    locais: Mapped[List["Local"]] = relationship(secondary=habilita_table, back_populates="tipos_evento")
-    ministerios: Mapped[List["Ministerio"]] = relationship(secondary=gerencia_table, back_populates="tipos_evento")
+    locais: Mapped[List["Local"]] = relationship(secondary=hospedar_table, back_populates="tipos_evento")
     eventos: Mapped[List["Evento"]] = relationship(back_populates="tipo_evento")
 
 
@@ -116,28 +82,37 @@ class Necessita(Base):
 class Pessoa(Base):
     __tablename__ = "pessoa"
 
-    cpf: Mapped[str] = mapped_column(String(11), primary_key=True)
+    id_pessoa: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     nome: Mapped[str] = mapped_column(String(100), nullable=False)
+    numero_celular: Mapped[Optional[str]] = mapped_column(String(15), unique=True)
     data_nascimento: Mapped[Optional[datetime.date]] = mapped_column(Date)
-    numero_celular: Mapped[Optional[str]] = mapped_column(String(15))
+    permissionamento: Mapped[str] = mapped_column(String(20), nullable=False, default="MEMBRO")
+    senha_hash: Mapped[Optional[str]] = mapped_column(String(255))
 
     membro: Mapped[Optional["Membro"]] = relationship(
-        back_populates="pessoa", cascade="all, delete-orphan", uselist=False
+        back_populates="pessoa",
+        cascade="all, delete-orphan",
+        uselist=False,
+        foreign_keys="Membro.id_pessoa",
     )
     visitante: Mapped[Optional["Visitante"]] = relationship(
         back_populates="pessoa",
         cascade="all, delete-orphan",
         uselist=False,
-        foreign_keys="Visitante.cpf",
+        foreign_keys="Visitante.id_pessoa",
     )
     habilidades: Mapped[List["Habilidade"]] = relationship(secondary=possui_table, back_populates="pessoas")
-    ministerios: Mapped[List["Ministerio"]] = relationship(secondary=participa_table, back_populates="membros")
-    ministerios_liderados: Mapped[List["Ministerio"]] = relationship(
-        secondary=lidera_table, back_populates="lideres"
+    alocacoes: Mapped[List["Alocacao"]] = relationship(
+        back_populates="pessoa",
+        foreign_keys="Alocacao.id_pessoa",
     )
-    alocacoes: Mapped[List["Alocacao"]] = relationship(back_populates="pessoa")
     convidados: Mapped[List["Visitante"]] = relationship(
-        back_populates="quem_convidou", foreign_keys="Visitante.cpf_quem_convidou"
+        back_populates="quem_convidou",
+        foreign_keys="Visitante.convidado_por",
+    )
+    liderados: Mapped[List["Membro"]] = relationship(
+        back_populates="lider",
+        foreign_keys="Membro.liderado_por",
     )
 
 
@@ -145,31 +120,33 @@ class Membro(Base):
     __tablename__ = "membro"
 
     id_membro: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    cpf: Mapped[str] = mapped_column(
-        String(11), ForeignKey("pessoa.cpf", ondelete="CASCADE"), unique=True, nullable=False
+    id_pessoa: Mapped[int] = mapped_column(
+        Integer, ForeignKey("pessoa.id_pessoa", ondelete="CASCADE"), unique=True, nullable=False
     )
     nome_celula: Mapped[Optional[str]] = mapped_column(String(50))
+    liderado_por: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("pessoa.id_pessoa", ondelete="SET NULL")
+    )
 
-    pessoa: Mapped["Pessoa"] = relationship(back_populates="membro")
+    pessoa: Mapped["Pessoa"] = relationship(back_populates="membro", foreign_keys=[id_pessoa])
+    lider: Mapped[Optional["Pessoa"]] = relationship(back_populates="liderados", foreign_keys=[liderado_por])
 
 
 class Visitante(Base):
     __tablename__ = "visitante"
 
     id_visitante: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    cpf: Mapped[str] = mapped_column(
-        String(11), ForeignKey("pessoa.cpf", ondelete="CASCADE"), unique=True, nullable=False
+    id_pessoa: Mapped[int] = mapped_column(
+        Integer, ForeignKey("pessoa.id_pessoa", ondelete="CASCADE"), unique=True, nullable=False
     )
     batizado: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    quanto_tempo_pastoreio: Mapped[Optional[str]] = mapped_column(String(50))
-    cpf_quem_convidou: Mapped[Optional[str]] = mapped_column(
-        String(11), ForeignKey("pessoa.cpf", ondelete="SET NULL")
+    e_pastor: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    convidado_por: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("pessoa.id_pessoa", ondelete="SET NULL")
     )
 
-    pessoa: Mapped["Pessoa"] = relationship(back_populates="visitante", foreign_keys=[cpf])
-    quem_convidou: Mapped[Optional["Pessoa"]] = relationship(
-        back_populates="convidados", foreign_keys=[cpf_quem_convidou]
-    )
+    pessoa: Mapped["Pessoa"] = relationship(back_populates="visitante", foreign_keys=[id_pessoa])
+    quem_convidou: Mapped[Optional["Pessoa"]] = relationship(back_populates="convidados", foreign_keys=[convidado_por])
 
 
 class Evento(Base):
@@ -194,17 +171,17 @@ class Evento(Base):
 
 class Alocacao(Base):
     __tablename__ = "alocacao"
-    __table_args__ = (UniqueConstraint("id_evento", "cpf_pessoa", "id_habilidade"),)
 
-    id_alocacao: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     id_evento: Mapped[int] = mapped_column(
-        Integer, ForeignKey("evento.id_evento", ondelete="CASCADE"), nullable=False
+        Integer, ForeignKey("evento.id_evento", ondelete="CASCADE"), primary_key=True
     )
-    cpf_pessoa: Mapped[str] = mapped_column(String(11), ForeignKey("pessoa.cpf"), nullable=False)
-    id_habilidade: Mapped[int] = mapped_column(Integer, ForeignKey("habilidade.id_habilidade"), nullable=False)
-    id_ministerio: Mapped[int] = mapped_column(Integer, ForeignKey("ministerio.id_ministerio"), nullable=False)
+    id_habilidade: Mapped[int] = mapped_column(
+        Integer, ForeignKey("habilidade.id_habilidade"), primary_key=True
+    )
+    id_pessoa: Mapped[int] = mapped_column(
+        Integer, ForeignKey("pessoa.id_pessoa"), primary_key=True
+    )
 
     evento: Mapped["Evento"] = relationship(back_populates="alocacoes")
-    pessoa: Mapped["Pessoa"] = relationship(back_populates="alocacoes")
+    pessoa: Mapped["Pessoa"] = relationship(back_populates="alocacoes", foreign_keys=[id_pessoa])
     habilidade: Mapped["Habilidade"] = relationship(back_populates="alocacoes")
-    ministerio: Mapped["Ministerio"] = relationship(back_populates="alocacoes")

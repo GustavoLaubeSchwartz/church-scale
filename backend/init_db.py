@@ -1,5 +1,5 @@
 """
-Cria as tabelas e popula o banco com dados iniciais do mini-mundo.
+Cria as tabelas e popula o banco com dados iniciais do mini-mundo (v2).
 Uso:
   python init_db.py          # cria tabelas (se não existirem) e seed (se vazio)
   python init_db.py --reset  # derruba tudo e recria (development only)
@@ -11,11 +11,12 @@ import os
 sys.path.insert(0, os.path.dirname(__file__))
 
 from app.database import engine, SessionLocal
-from app.models import Base, Local, Habilidade, Ministerio, TipoEvento, Pessoa, Membro, Visitante, Evento, Alocacao, Necessita
+from app.models import (
+    Base, Local, Habilidade, TipoEvento, Pessoa,
+    Membro, Visitante, Evento, Alocacao, Necessita,
+    possui_table, hospedar_table,
+)
 from app.security import hash_password
-
-# association tables (imported via Base.metadata)
-from app.models import participa_table, possui_table, habilita_table, lidera_table, gerencia_table
 
 
 def init_tables(reset: bool = False):
@@ -29,11 +30,11 @@ def init_tables(reset: bool = False):
 def seed(db):
     # ── Locais ──────────────────────────────────────────────────────────────
     locais = [
-        Local(nome="Templo Principal",       capacidade_maxima=500),
-        Local(nome="Salão de Eventos",        capacidade_maxima=200),
-        Local(nome="Sala de Reuniões A",      capacidade_maxima=50),
-        Local(nome="Auditório Kids",          capacidade_maxima=100),
-        Local(nome="Espaço ao Ar Livre",      capacidade_maxima=300),
+        Local(nome="Templo Principal",   capacidade_maxima=500),
+        Local(nome="Salão de Eventos",   capacidade_maxima=200),
+        Local(nome="Sala de Reuniões A", capacidade_maxima=50),
+        Local(nome="Auditório Kids",     capacidade_maxima=100),
+        Local(nome="Espaço ao Ar Livre", capacidade_maxima=300),
     ]
     db.add_all(locais)
     db.flush()
@@ -41,23 +42,14 @@ def seed(db):
     # ── Habilidades ─────────────────────────────────────────────────────────
     habilidades = [
         Habilidade(descricao="Vocal"),
-        Habilidade(descricao="Instrumentista"),
+        Habilidade(descricao="Baterista"),
         Habilidade(descricao="Operador de Som"),
+        Habilidade(descricao="Operador de Mídia - Letra"),
+        Habilidade(descricao="Diácono de Altar"),
         Habilidade(descricao="Recepcionista"),
         Habilidade(descricao="Professor Infantil"),
     ]
     db.add_all(habilidades)
-    db.flush()
-
-    # ── Ministérios ─────────────────────────────────────────────────────────
-    ministerios = [
-        Ministerio(nome="Louvor",       login="louvor",      senha_hash=hash_password("louvor123"),      criado_em=datetime.date(2020, 1, 15)),
-        Ministerio(nome="Multimídia",   login="multimidia",  senha_hash=hash_password("multimidia123"),  criado_em=datetime.date(2020, 3, 10)),
-        Ministerio(nome="Recepção",     login="recepcao",    senha_hash=hash_password("recepcao123"),    criado_em=datetime.date(2021, 6, 5)),
-        Ministerio(nome="Infantil",     login="infantil",    senha_hash=hash_password("infantil123"),    criado_em=datetime.date(2021, 8, 20)),
-        Ministerio(nome="Intercessão",  login="intercessao", senha_hash=hash_password("intercessao123"), criado_em=datetime.date(2022, 2, 1)),
-    ]
-    db.add_all(ministerios)
     db.flush()
 
     # ── Tipos de Evento ──────────────────────────────────────────────────────
@@ -67,96 +59,137 @@ def seed(db):
         TipoEvento(descricao="Reunião de Célula"),
         TipoEvento(descricao="Congresso Jovem"),
         TipoEvento(descricao="Culto Infantil"),
+        TipoEvento(descricao="Batismo"),
     ]
     db.add_all(tipos)
     db.flush()
 
-    # ── Pessoas ──────────────────────────────────────────────────────────────
-    pessoas_data = [
-        dict(cpf="12345678901", nome="Ana Silva",      data_nascimento=datetime.date(1990, 3, 15), numero_celular="11999990001"),
-        dict(cpf="23456789012", nome="Bruno Oliveira", data_nascimento=datetime.date(1985, 7, 22), numero_celular="11999990002"),
-        dict(cpf="34567890123", nome="Carla Santos",   data_nascimento=datetime.date(1995, 11, 5), numero_celular="11999990003"),
-        dict(cpf="45678901234", nome="Diego Ferreira", data_nascimento=datetime.date(1988, 4, 30), numero_celular="11999990004"),
-        dict(cpf="56789012345", nome="Eva Costa",      data_nascimento=datetime.date(2000, 9, 18), numero_celular="11999990005"),
-    ]
-    pessoas = [Pessoa(**p) for p in pessoas_data]
-    db.add_all(pessoas)
-    db.flush()
-
-    # Subtipos
-    membros = [
-        Membro(cpf="12345678901", nome_celula="Célula Alfa"),
-        Membro(cpf="23456789012", nome_celula="Célula Beta"),
-        Membro(cpf="34567890123", nome_celula="Célula Gama"),
-        Membro(cpf="45678901234", nome_celula="Célula Delta"),
-    ]
-    db.add_all(membros)
-
-    visitante = Visitante(
-        cpf="56789012345",
-        batizado=False,
-        quanto_tempo_pastoreio="6 meses",
-        cpf_quem_convidou="12345678901",
-    )
-    db.add(visitante)
-    db.flush()
-
-    # ── Necessita (tipo_evento ↔ habilidade com qtd) ─────────────────────────
+    # ── Quórum (NECESSITA) ───────────────────────────────────────────────────
     necessidades = [
-        Necessita(id_tipo_evento=tipos[0].id_tipo_evento, id_habilidade=habilidades[0].id_habilidade, qtd=3),
-        Necessita(id_tipo_evento=tipos[0].id_tipo_evento, id_habilidade=habilidades[1].id_habilidade, qtd=2),
-        Necessita(id_tipo_evento=tipos[0].id_tipo_evento, id_habilidade=habilidades[2].id_habilidade, qtd=1),
-        Necessita(id_tipo_evento=tipos[0].id_tipo_evento, id_habilidade=habilidades[3].id_habilidade, qtd=4),
-        Necessita(id_tipo_evento=tipos[4].id_tipo_evento, id_habilidade=habilidades[4].id_habilidade, qtd=2),
-        Necessita(id_tipo_evento=tipos[1].id_tipo_evento, id_habilidade=habilidades[0].id_habilidade, qtd=4),
-        Necessita(id_tipo_evento=tipos[1].id_tipo_evento, id_habilidade=habilidades[1].id_habilidade, qtd=3),
+        # Culto Dominical
+        Necessita(id_tipo_evento=tipos[0].id_tipo_evento, id_habilidade=habilidades[0].id_habilidade, qtd=1),
+        Necessita(id_tipo_evento=tipos[0].id_tipo_evento, id_habilidade=habilidades[1].id_habilidade, qtd=1),
+        Necessita(id_tipo_evento=tipos[0].id_tipo_evento, id_habilidade=habilidades[3].id_habilidade, qtd=2),
+        Necessita(id_tipo_evento=tipos[0].id_tipo_evento, id_habilidade=habilidades[4].id_habilidade, qtd=5),
+        # Culto de Louvor
+        Necessita(id_tipo_evento=tipos[1].id_tipo_evento, id_habilidade=habilidades[0].id_habilidade, qtd=3),
+        Necessita(id_tipo_evento=tipos[1].id_tipo_evento, id_habilidade=habilidades[1].id_habilidade, qtd=1),
+        Necessita(id_tipo_evento=tipos[1].id_tipo_evento, id_habilidade=habilidades[2].id_habilidade, qtd=1),
+        # Culto Infantil
+        Necessita(id_tipo_evento=tipos[4].id_tipo_evento, id_habilidade=habilidades[6].id_habilidade, qtd=2),
     ]
     db.add_all(necessidades)
     db.flush()
 
-    # ── Associações N:N ──────────────────────────────────────────────────────
-
-    # POSSUI (pessoa → habilidade)
-    db.execute(possui_table.insert(), [
-        {"cpf_pessoa": "12345678901", "id_habilidade": habilidades[0].id_habilidade},
-        {"cpf_pessoa": "12345678901", "id_habilidade": habilidades[1].id_habilidade},
-        {"cpf_pessoa": "23456789012", "id_habilidade": habilidades[2].id_habilidade},
-        {"cpf_pessoa": "34567890123", "id_habilidade": habilidades[3].id_habilidade},
-        {"cpf_pessoa": "45678901234", "id_habilidade": habilidades[4].id_habilidade},
-    ])
-
-    # PARTICIPA (pessoa → ministério)
-    db.execute(participa_table.insert(), [
-        {"cpf_pessoa": "12345678901", "id_ministerio": ministerios[0].id_ministerio},
-        {"cpf_pessoa": "23456789012", "id_ministerio": ministerios[1].id_ministerio},
-        {"cpf_pessoa": "34567890123", "id_ministerio": ministerios[2].id_ministerio},
-        {"cpf_pessoa": "45678901234", "id_ministerio": ministerios[3].id_ministerio},
-        {"cpf_pessoa": "56789012345", "id_ministerio": ministerios[0].id_ministerio},
-    ])
-
-    # LIDERA (líderes dos ministérios)
-    db.execute(lidera_table.insert(), [
-        {"cpf_pessoa": "12345678901", "id_ministerio": ministerios[0].id_ministerio},
-        {"cpf_pessoa": "23456789012", "id_ministerio": ministerios[1].id_ministerio},
-        {"cpf_pessoa": "34567890123", "id_ministerio": ministerios[2].id_ministerio},
-        {"cpf_pessoa": "45678901234", "id_ministerio": ministerios[3].id_ministerio},
-    ])
-
-    # GERENCIA (ministério → tipo de evento)
-    db.execute(gerencia_table.insert(), [
-        {"id_ministerio": ministerios[0].id_ministerio, "id_tipo_evento": tipos[0].id_tipo_evento},
-        {"id_ministerio": ministerios[0].id_ministerio, "id_tipo_evento": tipos[1].id_tipo_evento},
-        {"id_ministerio": ministerios[1].id_ministerio, "id_tipo_evento": tipos[0].id_tipo_evento},
-        {"id_ministerio": ministerios[3].id_ministerio, "id_tipo_evento": tipos[4].id_tipo_evento},
-    ])
-
-    # HABILITA (local → tipo de evento)
-    db.execute(habilita_table.insert(), [
+    # ── HOSPEDAR (local ↔ tipo_evento) ────────────────────────────────────────
+    db.execute(hospedar_table.insert(), [
         {"id_local": locais[0].id_local, "id_tipo_evento": tipos[0].id_tipo_evento},
         {"id_local": locais[0].id_local, "id_tipo_evento": tipos[1].id_tipo_evento},
         {"id_local": locais[1].id_local, "id_tipo_evento": tipos[3].id_tipo_evento},
         {"id_local": locais[3].id_local, "id_tipo_evento": tipos[4].id_tipo_evento},
         {"id_local": locais[4].id_local, "id_tipo_evento": tipos[3].id_tipo_evento},
+        {"id_local": locais[4].id_local, "id_tipo_evento": tipos[5].id_tipo_evento},
+    ])
+
+    # ── Pessoas (Membros) ────────────────────────────────────────────────────
+    # Líder principal — pode logar (permissionamento LIDER)
+    gustavo = Pessoa(
+        nome="Gustavo Schwartz",
+        numero_celular="27999990001",
+        data_nascimento=datetime.date(1990, 5, 15),
+        permissionamento="LIDER",
+        senha_hash=hash_password("lider123"),
+    )
+    db.add(gustavo)
+    db.flush()
+
+    membro_gustavo = Membro(id_pessoa=gustavo.id_pessoa, nome_celula="ON10")
+    db.add(membro_gustavo)
+    db.flush()
+
+    # Outros membros
+    ana = Pessoa(
+        nome="Ana Silva",
+        numero_celular="27999990002",
+        data_nascimento=datetime.date(1993, 3, 20),
+        permissionamento="MEMBRO",
+    )
+    bruno = Pessoa(
+        nome="Bruno Oliveira",
+        numero_celular="27999990003",
+        data_nascimento=datetime.date(1988, 7, 12),
+        permissionamento="MEMBRO",
+    )
+    carla = Pessoa(
+        nome="Carla Santos",
+        numero_celular="27999990004",
+        data_nascimento=datetime.date(1995, 11, 5),
+        permissionamento="MEMBRO",
+    )
+    diego = Pessoa(
+        nome="Diego Ferreira",
+        numero_celular="27999990005",
+        data_nascimento=datetime.date(1985, 4, 30),
+        permissionamento="LIDER",
+        senha_hash=hash_password("lider456"),
+    )
+    db.add_all([ana, bruno, carla, diego])
+    db.flush()
+
+    db.add_all([
+        Membro(id_pessoa=ana.id_pessoa,   nome_celula="Alfa",  liderado_por=gustavo.id_pessoa),
+        Membro(id_pessoa=bruno.id_pessoa, nome_celula="Beta",  liderado_por=gustavo.id_pessoa),
+        Membro(id_pessoa=carla.id_pessoa, nome_celula="Gama",  liderado_por=diego.id_pessoa),
+        Membro(id_pessoa=diego.id_pessoa, nome_celula="Delta"),
+    ])
+    db.flush()
+
+    # ── Visitante ────────────────────────────────────────────────────────────
+    eva = Pessoa(
+        nome="Eva Costa",
+        numero_celular="27999990006",
+        data_nascimento=datetime.date(2000, 9, 18),
+        permissionamento="MEMBRO",
+    )
+    db.add(eva)
+    db.flush()
+
+    db.add(Visitante(
+        id_pessoa=eva.id_pessoa,
+        batizado=True,
+        e_pastor=False,
+        convidado_por=gustavo.id_pessoa,
+    ))
+
+    # Pastor visitante externo
+    pastor_joao = Pessoa(
+        nome="Pastor João Lima",
+        numero_celular="21999990010",
+        permissionamento="MEMBRO",
+    )
+    db.add(pastor_joao)
+    db.flush()
+
+    db.add(Visitante(
+        id_pessoa=pastor_joao.id_pessoa,
+        batizado=True,
+        e_pastor=True,
+        convidado_por=gustavo.id_pessoa,
+    ))
+    db.flush()
+
+    # ── POSSUI (pessoa → habilidade) ─────────────────────────────────────────
+    db.execute(possui_table.insert(), [
+        {"id_pessoa": gustavo.id_pessoa, "id_habilidade": habilidades[0].id_habilidade},
+        {"id_pessoa": gustavo.id_pessoa, "id_habilidade": habilidades[4].id_habilidade},
+        {"id_pessoa": ana.id_pessoa,     "id_habilidade": habilidades[0].id_habilidade},
+        {"id_pessoa": ana.id_pessoa,     "id_habilidade": habilidades[1].id_habilidade},
+        {"id_pessoa": bruno.id_pessoa,   "id_habilidade": habilidades[2].id_habilidade},
+        {"id_pessoa": bruno.id_pessoa,   "id_habilidade": habilidades[3].id_habilidade},
+        {"id_pessoa": carla.id_pessoa,   "id_habilidade": habilidades[5].id_habilidade},
+        {"id_pessoa": carla.id_pessoa,   "id_habilidade": habilidades[4].id_habilidade},
+        {"id_pessoa": diego.id_pessoa,   "id_habilidade": habilidades[6].id_habilidade},
+        {"id_pessoa": diego.id_pessoa,   "id_habilidade": habilidades[4].id_habilidade},
     ])
 
     # ── Eventos ──────────────────────────────────────────────────────────────
@@ -164,39 +197,39 @@ def seed(db):
         Evento(
             id_tipo_evento=tipos[0].id_tipo_evento,
             id_local=locais[0].id_local,
-            dt_hr_prog_inicio=datetime.datetime(2025, 3, 2, 9, 0),
-            dt_hr_prog_fim=datetime.datetime(2025, 3, 2, 11, 30),
-            dt_hr_efet_inicio=datetime.datetime(2025, 3, 2, 9, 10),
-            dt_hr_efet_fim=datetime.datetime(2025, 3, 2, 11, 45),
+            dt_hr_prog_inicio=datetime.datetime(2026, 6, 29, 9, 0),
+            dt_hr_prog_fim=datetime.datetime(2026, 6, 29, 11, 30),
             qtd_participantes_esperados=200,
         ),
         Evento(
             id_tipo_evento=tipos[1].id_tipo_evento,
             id_local=locais[0].id_local,
-            dt_hr_prog_inicio=datetime.datetime(2025, 3, 5, 19, 30),
-            dt_hr_prog_fim=datetime.datetime(2025, 3, 5, 21, 30),
+            dt_hr_prog_inicio=datetime.datetime(2026, 7, 2, 19, 30),
+            dt_hr_prog_fim=datetime.datetime(2026, 7, 2, 21, 30),
             qtd_participantes_esperados=150,
         ),
         Evento(
             id_tipo_evento=tipos[4].id_tipo_evento,
             id_local=locais[3].id_local,
-            dt_hr_prog_inicio=datetime.datetime(2025, 3, 2, 9, 0),
-            dt_hr_prog_fim=datetime.datetime(2025, 3, 2, 11, 0),
+            dt_hr_prog_inicio=datetime.datetime(2026, 6, 29, 9, 0),
+            dt_hr_prog_fim=datetime.datetime(2026, 6, 29, 11, 0),
+            dt_hr_efet_inicio=datetime.datetime(2026, 6, 29, 9, 12),
+            dt_hr_efet_fim=datetime.datetime(2026, 6, 29, 11, 5),
             qtd_participantes_esperados=60,
         ),
         Evento(
             id_tipo_evento=tipos[3].id_tipo_evento,
             id_local=locais[1].id_local,
-            dt_hr_prog_inicio=datetime.datetime(2025, 3, 15, 8, 0),
-            dt_hr_prog_fim=datetime.datetime(2025, 3, 15, 18, 0),
+            dt_hr_prog_inicio=datetime.datetime(2026, 7, 12, 8, 0),
+            dt_hr_prog_fim=datetime.datetime(2026, 7, 12, 18, 0),
             qtd_participantes_esperados=180,
         ),
         Evento(
             id_tipo_evento=tipos[0].id_tipo_evento,
             id_local=locais[0].id_local,
-            dt_hr_prog_inicio=datetime.datetime(2025, 3, 9, 9, 0),
-            dt_hr_prog_fim=datetime.datetime(2025, 3, 9, 11, 30),
-            qtd_participantes_esperados=200,
+            dt_hr_prog_inicio=datetime.datetime(2026, 7, 6, 9, 0),
+            dt_hr_prog_fim=datetime.datetime(2026, 7, 6, 11, 30),
+            qtd_participantes_esperados=220,
         ),
     ]
     db.add_all(eventos)
@@ -204,15 +237,17 @@ def seed(db):
 
     # ── Alocações ────────────────────────────────────────────────────────────
     alocacoes = [
-        Alocacao(id_evento=eventos[0].id_evento, cpf_pessoa="12345678901", id_habilidade=habilidades[0].id_habilidade, id_ministerio=ministerios[0].id_ministerio),
-        Alocacao(id_evento=eventos[0].id_evento, cpf_pessoa="12345678901", id_habilidade=habilidades[1].id_habilidade, id_ministerio=ministerios[0].id_ministerio),
-        Alocacao(id_evento=eventos[0].id_evento, cpf_pessoa="23456789012", id_habilidade=habilidades[2].id_habilidade, id_ministerio=ministerios[1].id_ministerio),
-        Alocacao(id_evento=eventos[0].id_evento, cpf_pessoa="34567890123", id_habilidade=habilidades[3].id_habilidade, id_ministerio=ministerios[2].id_ministerio),
-        Alocacao(id_evento=eventos[2].id_evento, cpf_pessoa="45678901234", id_habilidade=habilidades[4].id_habilidade, id_ministerio=ministerios[3].id_ministerio),
+        Alocacao(id_evento=eventos[0].id_evento, id_pessoa=gustavo.id_pessoa, id_habilidade=habilidades[0].id_habilidade),
+        Alocacao(id_evento=eventos[0].id_evento, id_pessoa=gustavo.id_pessoa, id_habilidade=habilidades[4].id_habilidade),
+        Alocacao(id_evento=eventos[0].id_evento, id_pessoa=ana.id_pessoa,     id_habilidade=habilidades[1].id_habilidade),
+        Alocacao(id_evento=eventos[0].id_evento, id_pessoa=bruno.id_pessoa,   id_habilidade=habilidades[3].id_habilidade),
+        Alocacao(id_evento=eventos[2].id_evento, id_pessoa=diego.id_pessoa,   id_habilidade=habilidades[6].id_habilidade),
     ]
     db.add_all(alocacoes)
     db.commit()
     print("Dados iniciais inseridos.")
+    print(f"  Login de teste: celular=27999990001  senha=lider123")
+    print(f"  Login de teste: celular=27999990005  senha=lider456")
 
 
 if __name__ == "__main__":

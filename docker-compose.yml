@@ -3,15 +3,15 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: church_scale
-      POSTGRES_USER: church
-      POSTGRES_PASSWORD: church_secret
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U church -d church_scale"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -24,13 +24,24 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql://church:church_secret@db:5432/church_scale
-      SECRET_KEY: church-scale-secret-key-change-in-prod
-      ALGORITHM: HS256
-      ACCESS_TOKEN_EXPIRE_MINUTES: 480
+      DATABASE_URL: ${DATABASE_URL}
+      SECRET_KEY: ${SECRET_KEY}
+      ALGORITHM: ${ALGORITHM}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES}
     depends_on:
       db:
         condition: service_healthy
+
+  frontend:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - backend
 
 volumes:
   pgdata:

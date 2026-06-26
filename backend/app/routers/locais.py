@@ -1,3 +1,4 @@
+import logging
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -5,11 +6,12 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Local, TipoEvento, habilita_table
+from app.models import Local, TipoEvento, hospedar_table
 from app.schemas import LocalCreate, LocalOut, LocalUpdate, TipoEventoOut
-from app.security import get_current_ministerio
+from app.security import get_current_pessoa
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _get_or_404(db: Session, id_local: int) -> Local:
@@ -19,21 +21,23 @@ def _get_or_404(db: Session, id_local: int) -> Local:
     return obj
 
 
-@router.get("/", response_model=List[LocalOut])
-def list_locais(db: Session = Depends(get_db), _auth=Depends(get_current_ministerio)):
+@router.get("", response_model=List[LocalOut])
+def list_locais(db: Session = Depends(get_db), _auth=Depends(get_current_pessoa)):
+    logger.debug("Listando locais")
     return db.query(Local).order_by(Local.nome).all()
 
 
-@router.post("/", response_model=LocalOut, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=LocalOut, status_code=status.HTTP_201_CREATED)
 def create_local(
     body: LocalCreate,
     db: Session = Depends(get_db),
-    _auth=Depends(get_current_ministerio),
+    _auth=Depends(get_current_pessoa),
 ):
     obj = Local(nome=body.nome, capacidade_maxima=body.capacidade_maxima)
     db.add(obj)
     db.commit()
     db.refresh(obj)
+    logger.info("Local criado: '%s' capacidade=%d (id=%d)", obj.nome, obj.capacidade_maxima, obj.id_local)
     return obj
 
 
@@ -41,7 +45,7 @@ def create_local(
 def get_local(
     id_local: int,
     db: Session = Depends(get_db),
-    _auth=Depends(get_current_ministerio),
+    _auth=Depends(get_current_pessoa),
 ):
     return _get_or_404(db, id_local)
 
@@ -51,7 +55,7 @@ def update_local(
     id_local: int,
     body: LocalUpdate,
     db: Session = Depends(get_db),
-    _auth=Depends(get_current_ministerio),
+    _auth=Depends(get_current_pessoa),
 ):
     obj = _get_or_404(db, id_local)
     if body.nome is not None:
@@ -60,6 +64,7 @@ def update_local(
         obj.capacidade_maxima = body.capacidade_maxima
     db.commit()
     db.refresh(obj)
+    logger.info("Local atualizado: '%s' (id=%d)", obj.nome, obj.id_local)
     return obj
 
 
@@ -67,18 +72,20 @@ def update_local(
 def delete_local(
     id_local: int,
     db: Session = Depends(get_db),
-    _auth=Depends(get_current_ministerio),
+    _auth=Depends(get_current_pessoa),
 ):
     obj = _get_or_404(db, id_local)
+    nome = obj.nome
     db.delete(obj)
     db.commit()
+    logger.info("Local removido: '%s' (id=%d)", nome, id_local)
 
 
 @router.get("/{id_local}/tipos-evento", response_model=List[TipoEventoOut])
 def list_tipos_habilitados(
     id_local: int,
     db: Session = Depends(get_db),
-    _auth=Depends(get_current_ministerio),
+    _auth=Depends(get_current_pessoa),
 ):
     local = _get_or_404(db, id_local)
     return local.tipos_evento
@@ -93,7 +100,7 @@ def habilitar_tipo(
     id_local: int,
     body: HabilitaBody,
     db: Session = Depends(get_db),
-    _auth=Depends(get_current_ministerio),
+    _auth=Depends(get_current_pessoa),
 ):
     local = _get_or_404(db, id_local)
     tipo = db.get(TipoEvento, body.id_tipo_evento)
@@ -104,6 +111,7 @@ def habilitar_tipo(
     local.tipos_evento.append(tipo)
     db.commit()
     db.refresh(local)
+    logger.info("Tipo '%s' habilitado no local '%s'", tipo.descricao, local.nome)
     return local.tipos_evento
 
 
@@ -112,7 +120,7 @@ def desabilitar_tipo(
     id_local: int,
     id_tipo: int,
     db: Session = Depends(get_db),
-    _auth=Depends(get_current_ministerio),
+    _auth=Depends(get_current_pessoa),
 ):
     local = _get_or_404(db, id_local)
     tipo = db.get(TipoEvento, id_tipo)
@@ -120,3 +128,4 @@ def desabilitar_tipo(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tipo de evento não habilitado neste local")
     local.tipos_evento.remove(tipo)
     db.commit()
+    logger.info("Tipo '%s' desabilitado do local '%s'", tipo.descricao if tipo else id_tipo, local.nome)

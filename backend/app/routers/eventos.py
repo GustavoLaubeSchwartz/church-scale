@@ -1,16 +1,17 @@
 import datetime
+import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import and_
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
 from app.models import Evento, Local, TipoEvento
 from app.schemas import EventoCreate, EventoOut, EventoUpdate
-from app.security import get_current_ministerio
+from app.security import get_current_pessoa
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _get_or_404(db: Session, id_evento: int) -> Evento:
@@ -25,15 +26,16 @@ def _get_or_404(db: Session, id_evento: int) -> Evento:
     return obj
 
 
-@router.get("/", response_model=List[EventoOut])
+@router.get("", response_model=List[EventoOut])
 def list_eventos(
     id_tipo: Optional[int] = Query(None),
     id_local: Optional[int] = Query(None),
     ini: Optional[datetime.datetime] = Query(None),
     fim: Optional[datetime.datetime] = Query(None),
     db: Session = Depends(get_db),
-    _auth=Depends(get_current_ministerio),
+    _auth=Depends(get_current_pessoa),
 ):
+    logger.debug("Listando eventos — tipo=%s local=%s ini=%s fim=%s", id_tipo, id_local, ini, fim)
     query = (
         db.query(Evento)
         .options(joinedload(Evento.tipo_evento), joinedload(Evento.local))
@@ -49,11 +51,11 @@ def list_eventos(
     return query.order_by(Evento.dt_hr_prog_inicio).all()
 
 
-@router.post("/", response_model=EventoOut, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=EventoOut, status_code=status.HTTP_201_CREATED)
 def create_evento(
     body: EventoCreate,
     db: Session = Depends(get_db),
-    _auth=Depends(get_current_ministerio),
+    _auth=Depends(get_current_pessoa),
 ):
     if body.dt_hr_prog_fim <= body.dt_hr_prog_inicio:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Fim deve ser após o início")
@@ -66,14 +68,12 @@ def create_evento(
     if local is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Local não encontrado")
 
-    # Check location capacity vs expected participants
     if body.qtd_participantes_esperados > local.capacidade_maxima:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Participantes esperados ({body.qtd_participantes_esperados}) excedem capacidade do local ({local.capacidade_maxima})",
         )
 
-    # Check for time overlap at same location
     overlap = (
         db.query(Evento)
         .filter(
@@ -98,6 +98,10 @@ def create_evento(
     )
     db.add(obj)
     db.commit()
+    logger.info(
+        "Evento criado: id=%d tipo='%s' local='%s' início=%s",
+        obj.id_evento, tipo.descricao, local.nome, body.dt_hr_prog_inicio,
+    )
     return _get_or_404(db, obj.id_evento)
 
 
@@ -105,7 +109,7 @@ def create_evento(
 def get_evento(
     id_evento: int,
     db: Session = Depends(get_db),
-    _auth=Depends(get_current_ministerio),
+    _auth=Depends(get_current_pessoa),
 ):
     return _get_or_404(db, id_evento)
 
@@ -115,7 +119,7 @@ def update_evento(
     id_evento: int,
     body: EventoUpdate,
     db: Session = Depends(get_db),
-    _auth=Depends(get_current_ministerio),
+    _auth=Depends(get_current_pessoa),
 ):
     obj = _get_or_404(db, id_evento)
     if body.id_tipo_evento is not None:
@@ -133,6 +137,7 @@ def update_evento(
     if body.qtd_participantes_esperados is not None:
         obj.qtd_participantes_esperados = body.qtd_participantes_esperados
     db.commit()
+    logger.info("Evento atualizado: id=%d", id_evento)
     return _get_or_404(db, id_evento)
 
 
@@ -140,20 +145,21 @@ def update_evento(
 def delete_evento(
     id_evento: int,
     db: Session = Depends(get_db),
-    _auth=Depends(get_current_ministerio),
+    _auth=Depends(get_current_pessoa),
 ):
     obj = db.get(Evento, id_evento)
     if obj is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evento não encontrado")
     db.delete(obj)
     db.commit()
+    logger.info("Evento removido: id=%d", id_evento)
 
 
 @router.patch("/{id_evento}/iniciar", response_model=EventoOut)
 def iniciar_evento(
     id_evento: int,
     db: Session = Depends(get_db),
-    _auth=Depends(get_current_ministerio),
+    _auth=Depends(get_current_pessoa),
 ):
     obj = db.get(Evento, id_evento)
     if obj is None:
@@ -162,6 +168,7 @@ def iniciar_evento(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Evento já foi iniciado")
     obj.dt_hr_efet_inicio = datetime.datetime.utcnow()
     db.commit()
+    logger.info("Evento iniciado: id=%d em %s", id_evento, obj.dt_hr_efet_inicio)
     return _get_or_404(db, id_evento)
 
 
@@ -169,7 +176,7 @@ def iniciar_evento(
 def finalizar_evento(
     id_evento: int,
     db: Session = Depends(get_db),
-    _auth=Depends(get_current_ministerio),
+    _auth=Depends(get_current_pessoa),
 ):
     obj = db.get(Evento, id_evento)
     if obj is None:
@@ -180,4 +187,5 @@ def finalizar_evento(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Evento já foi finalizado")
     obj.dt_hr_efet_fim = datetime.datetime.utcnow()
     db.commit()
+    logger.info("Evento finalizado: id=%d em %s", id_evento, obj.dt_hr_efet_fim)
     return _get_or_404(db, id_evento)

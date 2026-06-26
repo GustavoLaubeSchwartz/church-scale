@@ -29,11 +29,11 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
-def get_current_ministerio(
+def get_current_pessoa(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ):
-    from .models import Ministerio
+    from .models import Pessoa
 
     credentials_exc = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -42,13 +42,13 @@ def get_current_ministerio(
     )
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        ministerio_id: Optional[int] = payload.get("sub")
-        if ministerio_id is None:
+        pessoa_id: Optional[str] = payload.get("sub")
+        if pessoa_id is None:
             raise credentials_exc
     except JWTError:
         raise credentials_exc
 
-    ministerio = db.get(Ministerio, int(ministerio_id))
-    if ministerio is None:
+    pessoa = db.get(Pessoa, int(pessoa_id))
+    if pessoa is None:
         raise credentials_exc
-    return ministerio
+    return pessoa

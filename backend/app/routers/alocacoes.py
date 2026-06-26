@@ -1,96 +1,75 @@
+import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Alocacao, Evento, Habilidade, Ministerio, Pessoa, participa_table, possui_table
+from app.models import Alocacao, Evento, Habilidade, Pessoa, possui_table
 from app.schemas import AlocacaoCreate, AlocacaoOut
-from app.security import get_current_ministerio
+from app.security import get_current_pessoa
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
-@router.get("/", response_model=List[AlocacaoOut])
+@router.get("", response_model=List[AlocacaoOut])
 def list_alocacoes(
     id_evento: Optional[int] = Query(None),
-    cpf_pessoa: Optional[str] = Query(None),
-    id_ministerio: Optional[int] = Query(None),
+    id_pessoa: Optional[int] = Query(None),
     db: Session = Depends(get_db),
-    _auth=Depends(get_current_ministerio),
+    _auth=Depends(get_current_pessoa),
 ):
+    logger.debug("Listando alocações — evento=%s pessoa=%s", id_evento, id_pessoa)
     query = db.query(Alocacao)
     if id_evento is not None:
         query = query.filter(Alocacao.id_evento == id_evento)
-    if cpf_pessoa is not None:
-        query = query.filter(Alocacao.cpf_pessoa == cpf_pessoa)
-    if id_ministerio is not None:
-        query = query.filter(Alocacao.id_ministerio == id_ministerio)
+    if id_pessoa is not None:
+        query = query.filter(Alocacao.id_pessoa == id_pessoa)
     return query.all()
 
 
-@router.post("/", response_model=AlocacaoOut, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=AlocacaoOut, status_code=status.HTTP_201_CREATED)
 def create_alocacao(
     body: AlocacaoCreate,
     db: Session = Depends(get_db),
-    _auth=Depends(get_current_ministerio),
+    _auth=Depends(get_current_pessoa),
 ):
-    # 1. Evento existe?
     evento = db.get(Evento, body.id_evento)
     if evento is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evento não encontrado")
 
-    # 2. Pessoa existe?
-    pessoa = db.get(Pessoa, body.cpf_pessoa)
+    pessoa = db.get(Pessoa, body.id_pessoa)
     if pessoa is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pessoa não encontrada")
 
-    # 3. Habilidade existe?
     habilidade = db.get(Habilidade, body.id_habilidade)
     if habilidade is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Habilidade não encontrada")
 
-    # 4. Ministério existe?
-    ministerio = db.get(Ministerio, body.id_ministerio)
-    if ministerio is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ministério não encontrado")
-
-    # 5. Pessoa possui a habilidade?
     possui = (
         db.query(possui_table)
         .filter(
-            possui_table.c.cpf_pessoa == body.cpf_pessoa,
+            possui_table.c.id_pessoa == body.id_pessoa,
             possui_table.c.id_habilidade == body.id_habilidade,
         )
         .first()
     )
     if not possui:
+        logger.warning(
+            "Alocação rejeitada — %s não possui habilidade '%s'",
+            pessoa.nome, habilidade.descricao,
+        )
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Pessoa não possui a habilidade informada",
         )
 
-    # 6. Pessoa participa do ministério?
-    participa = (
-        db.query(participa_table)
-        .filter(
-            participa_table.c.cpf_pessoa == body.cpf_pessoa,
-            participa_table.c.id_ministerio == body.id_ministerio,
-        )
-        .first()
-    )
-    if not participa:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Pessoa não participa do ministério informado",
-        )
-
-    # 7. Conflito de horário (pessoa alocada em evento simultâneo)?
     conflito = (
         db.query(Alocacao)
         .join(Evento, Evento.id_evento == Alocacao.id_evento)
         .filter(
-            Alocacao.cpf_pessoa == body.cpf_pessoa,
+            Alocacao.id_pessoa == body.id_pessoa,
             Evento.id_evento != body.id_evento,
             Evento.dt_hr_prog_inicio < evento.dt_hr_prog_fim,
             Evento.dt_hr_prog_fim > evento.dt_hr_prog_inicio,
@@ -98,6 +77,10 @@ def create_alocacao(
         .first()
     )
     if conflito:
+        logger.warning(
+            "Alocação rejeitada — %s possui conflito de horário (evento=%d)",
+            pessoa.nome, conflito.id_evento,
+        )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Pessoa já está alocada em outro evento no mesmo horário",
@@ -105,9 +88,8 @@ def create_alocacao(
 
     obj = Alocacao(
         id_evento=body.id_evento,
-        cpf_pessoa=body.cpf_pessoa,
+        id_pessoa=body.id_pessoa,
         id_habilidade=body.id_habilidade,
-        id_ministerio=body.id_ministerio,
     )
     db.add(obj)
     try:
@@ -116,17 +98,27 @@ def create_alocacao(
         db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Alocação duplicada")
     db.refresh(obj)
+    logger.info(
+        "Alocação criada: %s → habilidade '%s' no evento id=%d",
+        pessoa.nome, habilidade.descricao, body.id_evento,
+    )
     return obj
 
 
-@router.delete("/{id_alocacao}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{id_evento}/{id_habilidade}/{id_pessoa}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_alocacao(
-    id_alocacao: int,
+    id_evento: int,
+    id_habilidade: int,
+    id_pessoa: int,
     db: Session = Depends(get_db),
-    _auth=Depends(get_current_ministerio),
+    _auth=Depends(get_current_pessoa),
 ):
-    obj = db.get(Alocacao, id_alocacao)
+    obj = db.get(Alocacao, (id_evento, id_habilidade, id_pessoa))
     if obj is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alocação não encontrada")
     db.delete(obj)
     db.commit()
+    logger.info(
+        "Alocação removida: pessoa_id=%d habilidade_id=%d evento_id=%d",
+        id_pessoa, id_habilidade, id_evento,
+    )

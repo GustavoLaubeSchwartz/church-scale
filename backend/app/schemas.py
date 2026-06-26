@@ -1,6 +1,6 @@
 import datetime
 from typing import Optional, List
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel
 
 
 # ── Habilidade ──────────────────────────────────────────────────────────────
@@ -64,90 +64,54 @@ class NecessitaOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-# ── Ministério ───────────────────────────────────────────────────────────────
-
-class MinisterioBase(BaseModel):
-    nome: str
-
-class MinisterioCreate(MinisterioBase):
-    login: str
-    senha: str
-    criado_em: Optional[datetime.date] = None
-
-class MinisterioUpdate(BaseModel):
-    nome: Optional[str] = None
-    login: Optional[str] = None
-    senha: Optional[str] = None
-
-class MinisterioOut(MinisterioBase):
-    id_ministerio: int
-    login: str
-    criado_em: datetime.date
-    model_config = {"from_attributes": True}
-
-
 # ── Pessoa ───────────────────────────────────────────────────────────────────
 
 class PessoaBase(BaseModel):
-    cpf: str
     nome: str
-    data_nascimento: Optional[datetime.date] = None
     numero_celular: Optional[str] = None
-
-    @field_validator("cpf")
-    @classmethod
-    def cpf_digits_only(cls, v: str) -> str:
-        digits = "".join(c for c in v if c.isdigit())
-        if len(digits) != 11:
-            raise ValueError("CPF deve ter 11 dígitos")
-        return digits
+    data_nascimento: Optional[datetime.date] = None
+    permissionamento: str = "MEMBRO"
 
 class MembroCreate(PessoaBase):
+    senha: Optional[str] = None
     nome_celula: Optional[str] = None
+    liderado_por: Optional[int] = None
 
 class VisitanteCreate(PessoaBase):
+    senha: Optional[str] = None
     batizado: bool = False
-    quanto_tempo_pastoreio: Optional[str] = None
-    cpf_quem_convidou: Optional[str] = None
+    e_pastor: bool = False
+    convidado_por: Optional[int] = None
 
 class PessoaUpdate(BaseModel):
     nome: Optional[str] = None
-    data_nascimento: Optional[datetime.date] = None
     numero_celular: Optional[str] = None
-
-class MembroUpdate(PessoaUpdate):
+    data_nascimento: Optional[datetime.date] = None
+    permissionamento: Optional[str] = None
+    senha: Optional[str] = None
     nome_celula: Optional[str] = None
-
-class VisitanteUpdate(PessoaUpdate):
+    liderado_por: Optional[int] = None
     batizado: Optional[bool] = None
-    quanto_tempo_pastoreio: Optional[str] = None
-    cpf_quem_convidou: Optional[str] = None
-
-class MembroOut(BaseModel):
-    cpf: str
-    nome: str
-    data_nascimento: Optional[datetime.date]
-    numero_celular: Optional[str]
-    nome_celula: Optional[str]
-    model_config = {"from_attributes": True}
-
-class VisitanteOut(BaseModel):
-    cpf: str
-    nome: str
-    data_nascimento: Optional[datetime.date]
-    numero_celular: Optional[str]
-    batizado: bool
-    quanto_tempo_pastoreio: Optional[str]
-    cpf_quem_convidou: Optional[str]
-    model_config = {"from_attributes": True}
+    e_pastor: Optional[bool] = None
+    convidado_por: Optional[int] = None
 
 class PessoaOut(BaseModel):
-    cpf: str
+    id_pessoa: int
     nome: str
-    data_nascimento: Optional[datetime.date]
     numero_celular: Optional[str]
-    tipo: str  # "membro" | "visitante"
+    data_nascimento: Optional[datetime.date]
+    permissionamento: str
+    tipo: str
     model_config = {"from_attributes": True}
+
+class MembroOut(PessoaOut):
+    nome_celula: Optional[str]
+    liderado_por: Optional[int]
+
+class VisitanteOut(PessoaOut):
+    batizado: bool
+    e_pastor: bool
+    convidado_por: Optional[int]
 
 
 # ── Evento ───────────────────────────────────────────────────────────────────
@@ -184,47 +148,43 @@ class EventoOut(BaseModel):
 
 class AlocacaoCreate(BaseModel):
     id_evento: int
-    cpf_pessoa: str
+    id_pessoa: int
     id_habilidade: int
-    id_ministerio: int
 
 class AlocacaoOut(BaseModel):
-    id_alocacao: int
     id_evento: int
-    cpf_pessoa: str
+    id_pessoa: int
     id_habilidade: int
-    id_ministerio: int
     model_config = {"from_attributes": True}
 
 class AlocacaoDetalhada(BaseModel):
-    id_alocacao: int
     id_evento: int
-    pessoa_nome: str
-    cpf_pessoa: str
+    id_pessoa: int
+    nome_pessoa: str
     habilidade: str
-    ministerio: str
+    tipo_pessoa: str
     model_config = {"from_attributes": True}
 
 
 # ── Auth ─────────────────────────────────────────────────────────────────────
 
 class LoginRequest(BaseModel):
-    login: str
+    numero_celular: str
     senha: str
 
 class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"
-    ministerio: MinisterioOut
+    pessoa: PessoaOut
 
 
 # ── Relatórios ───────────────────────────────────────────────────────────────
 
 class EscalaEventoItem(BaseModel):
-    cpf_pessoa: str
+    id_pessoa: int
     nome_pessoa: str
     habilidade: str
-    ministerio: str
+    tipo_pessoa: str
 
 class AgendaItem(BaseModel):
     id_evento: int
@@ -233,10 +193,9 @@ class AgendaItem(BaseModel):
     dt_hr_prog_inicio: datetime.datetime
     dt_hr_prog_fim: datetime.datetime
     habilidade: str
-    ministerio: str
 
 class ParticipacaoItem(BaseModel):
-    cpf: str
+    id_pessoa: int
     nome: str
     total_alocacoes: int
 
@@ -246,14 +205,16 @@ class CoberturaQuorumItem(BaseModel):
     qtd_alocada: int
     coberto: bool
 
-class DistribuicaoMinisterioItem(BaseModel):
-    ministerio: str
-    total_participacoes: int
+class AptidaoHabilidadeItem(BaseModel):
+    habilidade: str
+    total_aptos: int
+    total_acionamentos: int
 
 class PastorVisitanteItem(BaseModel):
-    cpf_visitante: str
+    id_visitante: int
     nome_visitante: str
-    cpf_convidador: Optional[str]
+    e_pastor: bool
+    id_convidador: Optional[int]
     nome_convidador: Optional[str]
 
 class OcupacaoLocalItem(BaseModel):
@@ -262,8 +223,19 @@ class OcupacaoLocalItem(BaseModel):
     total_eventos: int
 
 class VoluntarioAptoItem(BaseModel):
-    cpf: str
+    id_pessoa: int
     nome: str
+
+class AtrasoEventoItem(BaseModel):
+    id_evento: int
+    tipo_evento: str
+    dt_hr_prog_inicio: datetime.datetime
+    dt_hr_prog_fim: datetime.datetime
+    dt_hr_efet_inicio: Optional[datetime.datetime]
+    dt_hr_efet_fim: Optional[datetime.datetime]
+    atraso_inicio_min: Optional[int]
+    duracao_planejada_min: int
+    duracao_efetiva_min: Optional[int]
 
 
 # Resolve forward refs

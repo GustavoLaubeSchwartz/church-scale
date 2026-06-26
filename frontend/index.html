@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Church Scale</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
@@ -11,20 +14,26 @@
 <!-- ── Login ─────────────────────────────────────────────────────────────── -->
 <div id="login-overlay">
   <div class="login-card">
-    <span class="cross-icon">✝</span>
-    <h1>Church Scale</h1>
-    <p class="subtitle">Sistema de Escalas de Voluntários</p>
+    <div class="login-logo">
+      <div class="login-logo-icon">✝</div>
+      <h1>Church Scale</h1>
+      <p>Sistema de Escalas de Voluntários</p>
+    </div>
     <form id="login-form">
-      <label>
-        Login do Ministério
-        <input type="text" id="login-input" autocomplete="username" required>
-      </label>
-      <label>
-        Senha
-        <input type="password" id="senha-input" autocomplete="current-password" required>
-      </label>
-      <button type="submit" class="btn btn-primary btn-full">Entrar</button>
-      <p id="login-error" class="error-msg"></p>
+      <div class="login-field">
+        <label for="login-input">Número de Celular</label>
+        <input type="text" id="login-input" autocomplete="username" required placeholder="Ex: 27999990001">
+      </div>
+      <div class="login-field">
+        <label for="senha-input">Senha</label>
+        <input type="password" id="senha-input" autocomplete="current-password" required placeholder="Sua senha">
+      </div>
+      <div class="login-error" id="login-error" role="alert">
+        <span class="login-error-icon">⚠</span>
+        <span id="login-error-msg"></span>
+      </div>
+      <button type="submit" class="btn btn-primary btn-full" style="margin-top:4px;padding:11px 16px">Entrar</button>
+      <p id="login-error-legacy" class="error-msg"></p>
     </form>
   </div>
 </div>
@@ -33,22 +42,37 @@
 <div id="app-shell" hidden>
   <aside id="sidebar">
     <div class="sidebar-header">
-      <h2>Church Scale</h2>
-      <p id="ministry-name" style="color:var(--text-muted);font-size:.78rem"></p>
+      <div class="sidebar-logo">
+        <div class="sidebar-logo-icon">✝</div>
+        <div class="sidebar-logo-text">
+          <h2>Church Scale</h2>
+          <p>Escalas de Voluntários</p>
+        </div>
+      </div>
+      <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Recolher menu" title="Recolher menu">◀</button>
     </div>
     <nav class="sidebar-nav" id="sidebar-nav"></nav>
+    <div class="sidebar-footer">
+      <div class="sidebar-user">
+        <div class="sidebar-avatar" id="sidebar-avatar">U</div>
+        <div class="sidebar-user-info">
+          <div class="sidebar-user-name" id="sidebar-user-name">Usuário</div>
+          <div class="sidebar-user-role">Logado</div>
+        </div>
+        <button class="sidebar-logout" id="logout-btn" title="Sair" aria-label="Sair">⏏</button>
+      </div>
+    </div>
   </aside>
 
   <div id="main-area">
     <header id="topbar">
-      <div style="display:flex;align-items:center;gap:12px">
+      <div class="topbar-left">
         <button id="hamburger" aria-label="Menu">☰</button>
-        <div class="topbar-info">
-          <span class="ministry-name" id="topbar-ministry"></span>
-          <span class="ministry-label">Ministério logado</span>
-        </div>
+        <span class="topbar-title" id="topbar-title">Dashboard</span>
       </div>
-      <button class="btn btn-secondary btn-sm" id="logout-btn">Sair</button>
+      <div class="topbar-right">
+        <!-- espaço para ações globais futuras -->
+      </div>
     </header>
 
     <main id="content"></main>

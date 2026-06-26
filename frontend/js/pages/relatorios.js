@@ -1,6 +1,7 @@
 import { api } from '../api.js';
 
 function fmtDt(s) { return s ? new Date(s).toLocaleString('pt-BR') : '—'; }
+function fmtMin(n) { return n != null ? `${n} min` : '—'; }
 
 function section(id, title, bodyHtml) {
   return `<div class="section-card" id="sec-${id}">
@@ -23,10 +24,14 @@ function table(cols, rows) {
 }
 
 export async function mount(container) {
-  let eventos = [], habilidades = [];
+  let eventos = [], habilidades = [], pessoas = [];
 
   async function loadAux() {
-    [eventos, habilidades] = await Promise.all([api.eventos.list(), api.habilidades.list()]);
+    [eventos, habilidades, pessoas] = await Promise.all([
+      api.eventos.list(),
+      api.habilidades.list(),
+      api.pessoas.list(),
+    ]);
   }
 
   function eventoLabel(e) { return `#${e.id_evento} — ${e.tipo_evento?.descricao || '?'}`; }
@@ -45,25 +50,36 @@ export async function mount(container) {
     </select>`;
   }
 
+  function pessoaSel(id) {
+    return `<select id="${id}" style="padding:7px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);min-width:200px">
+      <option value="">Selecione...</option>
+      ${pessoas.map(p => `<option value="${p.id_pessoa}">${p.nome} (#${p.id_pessoa})</option>`).join('')}
+    </select>`;
+  }
+
   // ── Render helpers ────────────────────────────────────────────────────────
 
   function renderEscala(data) {
-    const rows = data.map(r => `<tr><td>${r.nome_pessoa}</td><td>${r.cpf_pessoa}</td><td>${r.habilidade}</td><td>${r.ministerio}</td></tr>`).join('');
-    document.getElementById('result-escala').innerHTML = table(['Pessoa', 'CPF', 'Habilidade', 'Ministério'], data.length ? [rows] : []);
+    const rows = data.map(r => `<tr>
+      <td>${r.nome_pessoa}</td>
+      <td>${r.habilidade}</td>
+      <td><span class="badge ${r.tipo_pessoa === 'membro' ? 'badge-success' : 'badge-warning'}">${r.tipo_pessoa}</span></td>
+    </tr>`).join('');
+    document.getElementById('result-escala').innerHTML = table(['Pessoa', 'Habilidade', 'Tipo'], data.length ? [rows] : []);
   }
 
   function renderAgenda(data) {
     const rows = data.map(r => `<tr>
       <td>${r.id_evento}</td><td>${r.tipo_evento}</td><td>${r.local}</td>
       <td>${fmtDt(r.dt_hr_prog_inicio)}</td><td>${fmtDt(r.dt_hr_prog_fim)}</td>
-      <td>${r.habilidade}</td><td>${r.ministerio}</td>
+      <td>${r.habilidade}</td>
     </tr>`).join('');
-    document.getElementById('result-agenda').innerHTML = table(['ID', 'Tipo', 'Local', 'Início', 'Fim', 'Habilidade', 'Ministério'], data.length ? [rows] : []);
+    document.getElementById('result-agenda').innerHTML = table(['ID', 'Tipo', 'Local', 'Início', 'Fim', 'Habilidade'], data.length ? [rows] : []);
   }
 
   function renderParticipacao(data) {
-    const rows = data.map(r => `<tr><td>${r.cpf}</td><td>${r.nome}</td><td>${r.total_alocacoes}</td></tr>`).join('');
-    document.getElementById('result-participacao').innerHTML = table(['CPF', 'Nome', 'Total Alocações'], data.length ? [rows] : []);
+    const rows = data.map(r => `<tr><td>${r.id_pessoa}</td><td>${r.nome}</td><td>${r.total_alocacoes}</td></tr>`).join('');
+    document.getElementById('result-participacao').innerHTML = table(['ID', 'Nome', 'Total Alocações'], data.length ? [rows] : []);
   }
 
   function renderQuorum(data) {
@@ -76,23 +92,24 @@ export async function mount(container) {
     document.getElementById('result-quorum').innerHTML = table(['Habilidade', 'Necessário', 'Alocado', 'Status'], data.length ? [rows] : []);
   }
 
-  function renderDistribuicao(data) {
-    if (!data.length) { document.getElementById('result-dist').innerHTML = '<p class="empty-state">Nenhum registro.</p>'; return; }
-    const max = Math.max(...data.map(d => d.total_participacoes), 1);
+  function renderAptidao(data) {
+    if (!data.length) { document.getElementById('result-aptidao').innerHTML = '<p class="empty-state">Nenhum registro.</p>'; return; }
+    const max = Math.max(...data.map(d => d.total_aptos), 1);
     const bars = data.map(d => `<div class="bar-row">
-      <div class="bar-label" title="${d.ministerio}">${d.ministerio}</div>
-      <div class="bar-track"><div class="bar-fill" style="width:${Math.round(d.total_participacoes/max*100)}%"></div></div>
-      <div class="bar-value">${d.total_participacoes}</div>
+      <div class="bar-label" title="${d.habilidade}">${d.habilidade}</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${Math.round(d.total_aptos/max*100)}%"></div></div>
+      <div class="bar-value">${d.total_aptos} aptos / ${d.total_acionamentos} usos</div>
     </div>`).join('');
-    document.getElementById('result-dist').innerHTML = `<div class="bar-list">${bars}</div>`;
+    document.getElementById('result-aptidao').innerHTML = `<div class="bar-list">${bars}</div>`;
   }
 
   function renderPastores(data) {
     const rows = data.map(r => `<tr>
-      <td>${r.cpf_visitante}</td><td>${r.nome_visitante}</td>
-      <td>${r.cpf_convidador || '—'}</td><td>${r.nome_convidador || '—'}</td>
+      <td>${r.nome_visitante}</td>
+      <td><span class="badge ${r.e_pastor ? 'badge-warning' : 'badge-muted'}">${r.e_pastor ? 'Pastor' : 'Visitante'}</span></td>
+      <td>${r.nome_convidador || '—'}</td>
     </tr>`).join('');
-    document.getElementById('result-pastores').innerHTML = table(['CPF Visitante', 'Visitante', 'CPF Convidador', 'Convidado Por'], data.length ? [rows] : []);
+    document.getElementById('result-pastores').innerHTML = table(['Visitante', 'Tipo', 'Convidado por'], data.length ? [rows] : []);
   }
 
   function renderOcupacao(data) {
@@ -101,8 +118,23 @@ export async function mount(container) {
   }
 
   function renderAptos(data) {
-    const rows = data.map(r => `<tr><td>${r.cpf}</td><td>${r.nome}</td></tr>`).join('');
-    document.getElementById('result-aptos').innerHTML = table(['CPF', 'Nome'], data.length ? [rows] : []);
+    const rows = data.map(r => `<tr><td>${r.id_pessoa}</td><td>${r.nome}</td></tr>`).join('');
+    document.getElementById('result-aptos').innerHTML = table(['ID', 'Nome'], data.length ? [rows] : []);
+  }
+
+  function renderAtrasos(data) {
+    const rows = data.map(r => `<tr>
+      <td>${r.id_evento}</td>
+      <td>${r.tipo_evento}</td>
+      <td>${fmtDt(r.dt_hr_prog_inicio)}</td>
+      <td>${fmtMin(r.duracao_planejada_min)}</td>
+      <td>${fmtMin(r.atraso_inicio_min)}</td>
+      <td>${fmtMin(r.duracao_efetiva_min)}</td>
+    </tr>`).join('');
+    document.getElementById('result-atrasos').innerHTML = table(
+      ['ID', 'Tipo', 'Início Planejado', 'Duração Plan.', 'Atraso Início', 'Duração Efetiva'],
+      data.length ? [rows] : []
+    );
   }
 
   // ── Build page ────────────────────────────────────────────────────────────
@@ -119,7 +151,7 @@ export async function mount(container) {
 
     section('agenda', '2. Agenda de Voluntário', `
       <div class="section-controls">
-        <label>CPF da Pessoa<input type="text" id="inp-cpf-agenda" placeholder="11 dígitos" maxlength="11" style="min-width:140px"></label>
+        <label>Pessoa<div id="agenda-sel-wrap"></div></label>
         <button class="btn btn-primary btn-sm" id="btn-agenda">Buscar</button>
       </div>
       <div id="result-agenda"></div>
@@ -142,11 +174,11 @@ export async function mount(container) {
       <div id="result-quorum"></div>
     `),
 
-    section('dist', '5. Distribuição por Ministério', `
+    section('aptidao', '5. Aptidão e Demanda por Habilidade', `
       <div class="section-controls">
-        <button class="btn btn-primary btn-sm" id="btn-dist">Carregar</button>
+        <button class="btn btn-primary btn-sm" id="btn-aptidao">Carregar</button>
       </div>
-      <div id="result-dist"></div>
+      <div id="result-aptidao"></div>
     `),
 
     section('pastores', '6. Visitantes e Convidadores', `
@@ -172,6 +204,13 @@ export async function mount(container) {
       <div id="result-aptos"></div>
     `),
 
+    section('atrasos', '9. Controle de Atrasos (Planejado × Realizado)', `
+      <div class="section-controls">
+        <button class="btn btn-primary btn-sm" id="btn-atrasos">Carregar</button>
+      </div>
+      <div id="result-atrasos"></div>
+    `),
+
   ].join('');
 
   await loadAux();
@@ -181,6 +220,7 @@ export async function mount(container) {
   document.getElementById('quorum-sel-wrap').innerHTML = eventoSel('sel-quorum-ev');
   document.getElementById('aptos-ev-wrap').innerHTML = eventoSel('sel-aptos-ev');
   document.getElementById('aptos-hab-wrap').innerHTML = habSel('sel-aptos-hab');
+  document.getElementById('agenda-sel-wrap').innerHTML = pessoaSel('sel-agenda-pessoa');
 
   // Toggle collapse
   document.querySelectorAll('.section-header').forEach(header => {
@@ -203,9 +243,9 @@ export async function mount(container) {
   };
 
   document.getElementById('btn-agenda').onclick = async () => {
-    const cpf = document.getElementById('inp-cpf-agenda').value.trim();
-    if (!cpf) { window.toast('Informe o CPF', 'error'); return; }
-    try { renderAgenda(await api.relatorios.agendaPessoa(cpf)); }
+    const id = document.getElementById('sel-agenda-pessoa').value;
+    if (!id) { window.toast('Selecione uma pessoa', 'error'); return; }
+    try { renderAgenda(await api.relatorios.agendaPessoa(id)); }
     catch (err) { window.toast(err.message, 'error'); }
   };
 
@@ -224,8 +264,8 @@ export async function mount(container) {
     catch (err) { window.toast(err.message, 'error'); }
   };
 
-  document.getElementById('btn-dist').onclick = async () => {
-    try { renderDistribuicao(await api.relatorios.distribuicaoMinisterio()); }
+  document.getElementById('btn-aptidao').onclick = async () => {
+    try { renderAptidao(await api.relatorios.aptidaoHabilidade()); }
     catch (err) { window.toast(err.message, 'error'); }
   };
 
@@ -244,6 +284,11 @@ export async function mount(container) {
     const hab = document.getElementById('sel-aptos-hab').value;
     if (!ev || !hab) { window.toast('Selecione evento e habilidade', 'error'); return; }
     try { renderAptos(await api.relatorios.voluntariosAptos(ev, hab)); }
+    catch (err) { window.toast(err.message, 'error'); }
+  };
+
+  document.getElementById('btn-atrasos').onclick = async () => {
+    try { renderAtrasos(await api.relatorios.controleAtrasos()); }
     catch (err) { window.toast(err.message, 'error'); }
   };
 }

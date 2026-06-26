@@ -1,5 +1,5 @@
 import datetime
-from typing import List, Optional
+from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import text
@@ -8,15 +8,16 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.schemas import (
     AgendaItem,
+    AptidaoHabilidadeItem,
+    AtrasoEventoItem,
     CoberturaQuorumItem,
-    DistribuicaoMinisterioItem,
     EscalaEventoItem,
     OcupacaoLocalItem,
     ParticipacaoItem,
     PastorVisitanteItem,
     VoluntarioAptoItem,
 )
-from app.security import get_current_ministerio
+from app.security import get_current_pessoa
 
 router = APIRouter()
 
@@ -25,43 +26,49 @@ router = APIRouter()
 def escala_evento(
     id_evento: int,
     db: Session = Depends(get_db),
-    _auth=Depends(get_current_ministerio),
+    _auth=Depends(get_current_pessoa),
 ):
     sql = text("""
-        SELECT p.cpf AS cpf_pessoa, p.nome AS nome_pessoa,
-               h.descricao AS habilidade, m.nome AS ministerio
+        SELECT
+            p.id_pessoa,
+            p.nome AS nome_pessoa,
+            h.descricao AS habilidade,
+            CASE WHEN m.id_membro IS NOT NULL THEN 'membro' ELSE 'visitante' END AS tipo_pessoa
         FROM alocacao a
-        JOIN pessoa p ON p.cpf = a.cpf_pessoa
+        JOIN pessoa p ON p.id_pessoa = a.id_pessoa
         JOIN habilidade h ON h.id_habilidade = a.id_habilidade
-        JOIN ministerio m ON m.id_ministerio = a.id_ministerio
+        LEFT JOIN membro m ON m.id_pessoa = p.id_pessoa
         WHERE a.id_evento = :id_evento
-        ORDER BY m.nome, p.nome
+        ORDER BY h.descricao, p.nome
     """)
     rows = db.execute(sql, {"id_evento": id_evento}).mappings().all()
     return [EscalaEventoItem(**r) for r in rows]
 
 
-@router.get("/agenda-pessoa/{cpf}", response_model=List[AgendaItem])
+@router.get("/agenda-pessoa/{id_pessoa}", response_model=List[AgendaItem])
 def agenda_pessoa(
-    cpf: str,
+    id_pessoa: int,
     db: Session = Depends(get_db),
-    _auth=Depends(get_current_ministerio),
+    _auth=Depends(get_current_pessoa),
 ):
     sql = text("""
-        SELECT e.id_evento, te.descricao AS tipo_evento, l.nome AS local,
-               e.dt_hr_prog_inicio, e.dt_hr_prog_fim,
-               h.descricao AS habilidade, m.nome AS ministerio
+        SELECT
+            e.id_evento,
+            te.descricao AS tipo_evento,
+            l.nome AS local,
+            e.dt_hr_prog_inicio,
+            e.dt_hr_prog_fim,
+            h.descricao AS habilidade
         FROM alocacao a
         JOIN evento e ON e.id_evento = a.id_evento
         JOIN tipo_evento te ON te.id_tipo_evento = e.id_tipo_evento
         JOIN local l ON l.id_local = e.id_local
         JOIN habilidade h ON h.id_habilidade = a.id_habilidade
-        JOIN ministerio m ON m.id_ministerio = a.id_ministerio
-        WHERE a.cpf_pessoa = :cpf
+        WHERE a.id_pessoa = :id_pessoa
           AND e.dt_hr_prog_inicio >= NOW()
         ORDER BY e.dt_hr_prog_inicio
     """)
-    rows = db.execute(sql, {"cpf": cpf}).mappings().all()
+    rows = db.execute(sql, {"id_pessoa": id_pessoa}).mappings().all()
     return [AgendaItem(**r) for r in rows]
 
 
@@ -70,15 +77,15 @@ def participacao_periodo(
     ini: datetime.datetime = Query(..., description="Data/hora início do período"),
     fim: datetime.datetime = Query(..., description="Data/hora fim do período"),
     db: Session = Depends(get_db),
-    _auth=Depends(get_current_ministerio),
+    _auth=Depends(get_current_pessoa),
 ):
     sql = text("""
-        SELECT p.cpf, p.nome, COUNT(a.id_alocacao) AS total_alocacoes
+        SELECT p.id_pessoa, p.nome, COUNT(*) AS total_alocacoes
         FROM pessoa p
-        JOIN alocacao a ON a.cpf_pessoa = p.cpf
+        JOIN alocacao a ON a.id_pessoa = p.id_pessoa
         JOIN evento e ON e.id_evento = a.id_evento
         WHERE e.dt_hr_prog_inicio BETWEEN :ini AND :fim
-        GROUP BY p.cpf, p.nome
+        GROUP BY p.id_pessoa, p.nome
         ORDER BY total_alocacoes DESC
     """)
     rows = db.execute(sql, {"ini": ini, "fim": fim}).mappings().all()
@@ -89,13 +96,14 @@ def participacao_periodo(
 def cobertura_quorum(
     id_evento: int,
     db: Session = Depends(get_db),
-    _auth=Depends(get_current_ministerio),
+    _auth=Depends(get_current_pessoa),
 ):
     sql = text("""
-        SELECT h.descricao AS habilidade,
-               n.qtd AS qtd_necessaria,
-               COUNT(a.id_alocacao) AS qtd_alocada,
-               (COUNT(a.id_alocacao) >= n.qtd) AS coberto
+        SELECT
+            h.descricao AS habilidade,
+            n.qtd AS qtd_necessaria,
+            COUNT(a.id_pessoa) AS qtd_alocada,
+            (COUNT(a.id_pessoa) >= n.qtd) AS coberto
         FROM necessita n
         JOIN habilidade h ON h.id_habilidade = n.id_habilidade
         JOIN evento e ON e.id_tipo_evento = n.id_tipo_evento
@@ -108,33 +116,41 @@ def cobertura_quorum(
     return [CoberturaQuorumItem(**r) for r in rows]
 
 
-@router.get("/distribuicao-ministerio", response_model=List[DistribuicaoMinisterioItem])
-def distribuicao_ministerio(
+@router.get("/aptidao-habilidade", response_model=List[AptidaoHabilidadeItem])
+def aptidao_habilidade(
     db: Session = Depends(get_db),
-    _auth=Depends(get_current_ministerio),
+    _auth=Depends(get_current_pessoa),
 ):
     sql = text("""
-        SELECT m.nome AS ministerio, COUNT(a.id_alocacao) AS total_participacoes
-        FROM ministerio m
-        LEFT JOIN alocacao a ON a.id_ministerio = m.id_ministerio
-        GROUP BY m.nome
-        ORDER BY total_participacoes DESC
+        SELECT
+            h.descricao AS habilidade,
+            COUNT(DISTINCT po.id_pessoa) AS total_aptos,
+            COUNT(a.id_pessoa) AS total_acionamentos
+        FROM habilidade h
+        LEFT JOIN possui po ON po.id_habilidade = h.id_habilidade
+        LEFT JOIN alocacao a ON a.id_habilidade = h.id_habilidade
+        GROUP BY h.descricao
+        ORDER BY total_acionamentos DESC
     """)
     rows = db.execute(sql).mappings().all()
-    return [DistribuicaoMinisterioItem(**r) for r in rows]
+    return [AptidaoHabilidadeItem(**r) for r in rows]
 
 
 @router.get("/pastores-visitantes", response_model=List[PastorVisitanteItem])
 def pastores_visitantes(
     db: Session = Depends(get_db),
-    _auth=Depends(get_current_ministerio),
+    _auth=Depends(get_current_pessoa),
 ):
     sql = text("""
-        SELECT v.cpf AS cpf_visitante, p.nome AS nome_visitante,
-               v.cpf_quem_convidou AS cpf_convidador, p2.nome AS nome_convidador
+        SELECT
+            v.id_visitante,
+            p.nome AS nome_visitante,
+            v.e_pastor,
+            v.convidado_por AS id_convidador,
+            p2.nome AS nome_convidador
         FROM visitante v
-        JOIN pessoa p ON p.cpf = v.cpf
-        LEFT JOIN pessoa p2 ON p2.cpf = v.cpf_quem_convidou
+        JOIN pessoa p ON p.id_pessoa = v.id_pessoa
+        LEFT JOIN pessoa p2 ON p2.id_pessoa = v.convidado_por
         ORDER BY p.nome
     """)
     rows = db.execute(sql).mappings().all()
@@ -144,7 +160,7 @@ def pastores_visitantes(
 @router.get("/ocupacao-locais", response_model=List[OcupacaoLocalItem])
 def ocupacao_locais(
     db: Session = Depends(get_db),
-    _auth=Depends(get_current_ministerio),
+    _auth=Depends(get_current_pessoa),
 ):
     sql = text("""
         SELECT l.id_local, l.nome AS nome_local, COUNT(e.id_evento) AS total_eventos
@@ -162,17 +178,62 @@ def voluntarios_aptos(
     id_evento: int = Query(..., description="ID do evento"),
     id_habilidade: int = Query(..., description="ID da habilidade"),
     db: Session = Depends(get_db),
-    _auth=Depends(get_current_ministerio),
+    _auth=Depends(get_current_pessoa),
 ):
     sql = text("""
-        SELECT p.cpf, p.nome
+        SELECT p.id_pessoa, p.nome
         FROM pessoa p
-        JOIN possui po ON po.cpf_pessoa = p.cpf
+        JOIN possui po ON po.id_pessoa = p.id_pessoa
         WHERE po.id_habilidade = :id_habilidade
-          AND p.cpf NOT IN (
-              SELECT a.cpf_pessoa FROM alocacao a WHERE a.id_evento = :id_evento
+          AND p.id_pessoa NOT IN (
+              SELECT a.id_pessoa FROM alocacao a WHERE a.id_evento = :id_evento
           )
         ORDER BY p.nome
     """)
     rows = db.execute(sql, {"id_habilidade": id_habilidade, "id_evento": id_evento}).mappings().all()
     return [VoluntarioAptoItem(**r) for r in rows]
+
+
+@router.get("/controle-atrasos", response_model=List[AtrasoEventoItem])
+def controle_atrasos(
+    db: Session = Depends(get_db),
+    _auth=Depends(get_current_pessoa),
+):
+    sql = text("""
+        SELECT
+            e.id_evento,
+            te.descricao AS tipo_evento,
+            e.dt_hr_prog_inicio,
+            e.dt_hr_prog_fim,
+            e.dt_hr_efet_inicio,
+            e.dt_hr_efet_fim,
+            CASE
+                WHEN e.dt_hr_efet_inicio IS NOT NULL
+                THEN EXTRACT(EPOCH FROM (e.dt_hr_efet_inicio - e.dt_hr_prog_inicio)) / 60
+                ELSE NULL
+            END AS atraso_inicio_min,
+            EXTRACT(EPOCH FROM (e.dt_hr_prog_fim - e.dt_hr_prog_inicio)) / 60 AS duracao_planejada_min,
+            CASE
+                WHEN e.dt_hr_efet_inicio IS NOT NULL AND e.dt_hr_efet_fim IS NOT NULL
+                THEN EXTRACT(EPOCH FROM (e.dt_hr_efet_fim - e.dt_hr_efet_inicio)) / 60
+                ELSE NULL
+            END AS duracao_efetiva_min
+        FROM evento e
+        JOIN tipo_evento te ON te.id_tipo_evento = e.id_tipo_evento
+        ORDER BY e.dt_hr_prog_inicio DESC
+    """)
+    rows = db.execute(sql).mappings().all()
+    result = []
+    for r in rows:
+        result.append(AtrasoEventoItem(
+            id_evento=r["id_evento"],
+            tipo_evento=r["tipo_evento"],
+            dt_hr_prog_inicio=r["dt_hr_prog_inicio"],
+            dt_hr_prog_fim=r["dt_hr_prog_fim"],
+            dt_hr_efet_inicio=r["dt_hr_efet_inicio"],
+            dt_hr_efet_fim=r["dt_hr_efet_fim"],
+            atraso_inicio_min=int(r["atraso_inicio_min"]) if r["atraso_inicio_min"] is not None else None,
+            duracao_planejada_min=int(r["duracao_planejada_min"]),
+            duracao_efetiva_min=int(r["duracao_efetiva_min"]) if r["duracao_efetiva_min"] is not None else None,
+        ))
+    return result
