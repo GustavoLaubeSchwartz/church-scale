@@ -13,7 +13,7 @@ COPY frontend/ ./frontend/
 
 # Entrypoint fica dentro do backend
 COPY backend/entrypoint.sh ./entrypoint.sh
-RUN chmod +x ./entrypoint.sh
+RUN sed -i 's/\r$//' ./entrypoint.sh && chmod +x ./entrypoint.sh
 
 WORKDIR /app/backend
 
